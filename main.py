@@ -12,46 +12,35 @@ from transformers import (
 import os
 
 # --- Configuration ---
-# MODIFIED: The script now points to a local folder for the model.
-# Make sure to download the model into a folder named "phi-2" in the same directory.
 BASE_MODEL = "./phi-2"
-# The path to your sample CSV data.
-CSV_DATA_PATH = "sample_data.csv"
-# Where the final, fine-tuned model will be saved.
+# The script reads from the pre-split training data file.
+CSV_DATA_PATH = "train_data.csv"
 OUTPUT_MODEL_PATH = "./phi2-csv-finetuned"
-# How many preceding rows the model should consider as context.
+# Set this to match the context you want the model to learn
 CONTEXT_WINDOW = 20
 
 
 def prepare_dataset_from_csv():
     """
-    Loads data from a CSV and formats it for fine-tuning. The model learns
-    to predict the next row based on a 'CONTEXT_WINDOW' of previous rows.
+    Loads the pre-split training data and formats it for fine-tuning.
     """
-    # 1. Create a dummy CSV if it doesn't exist, so the script can run.
     if not os.path.exists(CSV_DATA_PATH):
-        print(f"Sample data '{CSV_DATA_PATH}' not found. Creating a dummy file.")
-        dummy_df = pd.DataFrame({
-            'ProductID': ['P001', 'P002', 'P003', 'P004', 'P005', 'P006'],
-            'Category': ['Electronics', 'Books', 'Electronics', 'Home Goods', 'Books', 'Home Goods'],
-            'Price': [299.99, 19.99, 49.99, 129.50, 24.95, 89.99],
-            'InStock': [True, True, False, True, True, False]
-        })
-        dummy_df.to_csv(CSV_DATA_PATH, index=False)
+        print(f"Training data '{CSV_DATA_PATH}' not found.")
+        print("Please run the 'prepare_data.py' script first to create it.")
+        exit()
 
-    print(f"Loading data from {CSV_DATA_PATH}")
+    print(f"Loading training data from {CSV_DATA_PATH}")
     df = pd.read_csv(CSV_DATA_PATH)
-    header = ",".join(df.columns)
 
+    header = ",".join(df.columns)
     data_rows = [",".join(map(str, row)) for row in df.values]
 
-    # 2. Create prompt-completion pairs
+    # Create prompt-completion pairs from the training data
     formatted_data = []
     for i in range(len(data_rows) - CONTEXT_WINDOW):
         context = data_rows[i: i + CONTEXT_WINDOW]
         completion = data_rows[i + CONTEXT_WINDOW]
 
-        # We provide the header and context rows as the prompt
         prompt_text = f"###HEADER:\n{header}\n###CONTEXT:\n" + "\n".join(context)
         full_text = f"{prompt_text}\n###NEXT_ROW:\n{completion}"
 
@@ -62,7 +51,6 @@ def prepare_dataset_from_csv():
 
 
 # --- Main Fine-Tuning Logic ---
-
 # 1. Prepare Dataset
 dataset = prepare_dataset_from_csv()
 
@@ -70,11 +58,15 @@ dataset = prepare_dataset_from_csv()
 print(f"Loading base model and tokenizer from local path: {BASE_MODEL}")
 if not os.path.exists(BASE_MODEL):
     print(f"Error: Model directory not found at '{BASE_MODEL}'.")
-    print("Please follow the instructions to download the model manually.")
+    print("Please download the model manually into the 'phi-2' folder.")
     exit()
 
 tokenizer = AutoTokenizer.from_pretrained(BASE_MODEL, trust_remote_code=True)
-model = AutoModelForCausalLM.from_pretrained(BASE_MODEL, trust_remote_code=True, dtype=torch.bfloat16)
+model = AutoModelForCausalLM.from_pretrained(
+    BASE_MODEL,
+    trust_remote_code=True,
+    dtype=torch.bfloat16
+)
 
 if tokenizer.pad_token is None:
     tokenizer.pad_token = tokenizer.eos_token
@@ -82,7 +74,6 @@ if tokenizer.pad_token is None:
 
 # 3. Tokenize the dataset
 def tokenize_function(examples):
-    # Note: Increased max_length to handle multiple rows of context
     return tokenizer(examples["text"], truncation=True, padding="max_length", max_length=512)
 
 
@@ -112,7 +103,7 @@ trainer = Trainer(
 )
 
 # 6. Start Fine-Tuning
-print("Starting fine-tuning...")
+print("Starting fine-tuning on the training data...")
 trainer.train()
 print("Fine-tuning complete.")
 
